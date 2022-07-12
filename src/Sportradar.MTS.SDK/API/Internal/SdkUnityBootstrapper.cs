@@ -11,7 +11,6 @@ using System.Net.Http;
 using System.Runtime.Caching;
 using App.Metrics;
 using Microsoft.Extensions.Logging;
-using RabbitMQ.Client;
 using Sportradar.MTS.SDK.API.Internal.Mappers;
 using Sportradar.MTS.SDK.API.Internal.MtsAuth;
 using Sportradar.MTS.SDK.API.Internal.RabbitMq;
@@ -161,7 +160,7 @@ namespace Sportradar.MTS.SDK.API.Internal
 
             container.RegisterType<ConnectionValidator, ConnectionValidator>(new ContainerControlledLifetimeManager());
 
-            container.RegisterType<IConnectionFactory, ConfiguredConnectionFactory>(new ContainerControlledLifetimeManager());
+            container.RegisterType<ConfiguredConnectionFactory>(new ContainerControlledLifetimeManager());
 
             container.RegisterType<IChannelFactory, ChannelFactory>(new ContainerControlledLifetimeManager());
 

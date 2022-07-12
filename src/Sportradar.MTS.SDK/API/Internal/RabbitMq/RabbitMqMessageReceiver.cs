@@ -77,16 +77,15 @@ namespace Sportradar.MTS.SDK.API.Internal.RabbitMq
         /// <param name="eventArgs">A <see cref="BasicDeliverEventArgs" /> containing event information</param>
         private void Consumer_OnMessageReceived(object sender, BasicDeliverEventArgs eventArgs)
         {
-            if (eventArgs?.Body == null || !eventArgs.Body.Any())
+            if (eventArgs?.Body.IsEmpty ?? true)
             {
-                var b = eventArgs?.Body == null ? "null" : "empty";
-                FeedLog.LogWarning($"A message with {b} body received. Aborting message processing");
+                FeedLog.LogWarning("A message with empty body received. Aborting message processing");
                 return;
             }
 
             var stopwatch = Stopwatch.StartNew();
 
-            var messageBody = Encoding.UTF8.GetString(eventArgs.Body);
+            var messageBody = Encoding.UTF8.GetString(eventArgs.Body.Span);
             var correlationId = string.Empty;
             var additionalInfo = new Dictionary<string, string>();
             if (eventArgs.BasicProperties != null)
