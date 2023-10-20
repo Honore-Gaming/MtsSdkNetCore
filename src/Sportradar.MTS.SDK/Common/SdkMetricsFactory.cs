@@ -8,16 +8,24 @@ namespace Sportradar.MTS.SDK.Common
     /// <summary>
     /// Provides methods to get <see cref="IMetricsRoot"/> to record sdk metrics
     /// </summary>
-    public class SdkMetricsFactory
+    public static class SdkMetricsFactory
     {
         private static IMetricsRoot _metricsRoot;
 
-        //set by dependency injection
-        public SdkMetricsFactory(IMetricsRoot metricsRoot)
+        /// <summary>
+        /// Set a new instance of the <see cref="SdkMetricsFactory"/> class.
+        /// </summary>
+        /// <param name="metricsRoot">The metrics root.</param>
+        /// <remarks>Used within bootstrapper</remarks>
+        internal static void SetMetricsFactory(IMetricsRoot metricsRoot)
         {
             _metricsRoot = metricsRoot;
         }
 
+        /// <summary>
+        /// Gets the metrics root
+        /// </summary>
+        /// <value>The metrics root</value>
         public static IMetricsRoot MetricsRoot
         {
             get

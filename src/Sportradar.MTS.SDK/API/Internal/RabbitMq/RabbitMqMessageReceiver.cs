@@ -47,11 +47,6 @@ namespace Sportradar.MTS.SDK.API.Internal.RabbitMq
         /// </summary>
         public event EventHandler<MessageReceivedEventArgs> MqMessageReceived;
 
-        ///// <summary>
-        ///// Event raised when the <see cref="IRabbitMqConsumerChannel" /> could not deserialize the received message
-        ///// </summary>
-        //public event EventHandler<MessageDeserializationFailedEventArgs> MqMessageDeserializationFailed;
-
         private readonly TicketResponseType _expectedTicketResponseType;
 
         private readonly IMetricsRoot _metrics;
@@ -92,55 +87,7 @@ namespace Sportradar.MTS.SDK.API.Internal.RabbitMq
             {
                 correlationId = eventArgs.BasicProperties.CorrelationId;
 
-                if (eventArgs.BasicProperties.IsHeadersPresent())
-                {
-                    object obj;
-                    if (eventArgs.BasicProperties.Headers.ContainsKey("receivedUtcTimestamp"))
-                    {
-                        if (eventArgs.BasicProperties.Headers.TryGetValue("receivedUtcTimestamp", out obj))
-                        {
-                            //var date = TicketHelper.UnixTimeToDateTime((long)obj);
-                            additionalInfo.Add("receivedUtcTimestamp", obj.ToString());
-                        }
-                    }
-                    if (eventArgs.BasicProperties.Headers.ContainsKey("validatedUtcTimestamp"))
-                    {
-                        if (eventArgs.BasicProperties.Headers.TryGetValue("validatedUtcTimestamp", out obj))
-                        {
-                            //var date = TicketHelper.UnixTimeToDateTime((long)obj);
-                            additionalInfo.Add("validatedUtcTimestamp", obj.ToString());
-                        }
-                    }
-                    if (eventArgs.BasicProperties.Headers.ContainsKey("respondedUtcTimestamp"))
-                    {
-                        if (eventArgs.BasicProperties.Headers.TryGetValue("respondedUtcTimestamp", out obj))
-                        {
-                            //var date = TicketHelper.UnixTimeToDateTime((long)obj);
-                            additionalInfo.Add("respondedUtcTimestamp", obj.ToString());
-                        }
-                    }
-                    if (eventArgs.BasicProperties.Headers.ContainsKey("__uid__"))
-                    {
-                        if(eventArgs.BasicProperties.Headers.TryGetValue("__uid__", out obj))
-                        {
-                            var b = obj as byte[];
-                            if (b != null)
-                            {
-                                var unused = Encoding.UTF8.GetString(b);
-                            }
-                        }
-                    }
-                    if (eventArgs.BasicProperties.Headers.ContainsKey("Content-Type"))
-                    {
-                        eventArgs.BasicProperties.Headers.TryGetValue("Content-Type", out obj);
-                        var b = obj as byte[];
-                        if (b != null)
-                        {
-                            var c = Encoding.UTF8.GetString(b);
-                            additionalInfo.Add("Content-Type", c);
-                        }
-                    }
-                }
+                additionalInfo = FillAdditionalInfo(additionalInfo, eventArgs.BasicProperties);
             }
             if (FeedLog.IsEnabled(LogLevel.Debug))
             {
@@ -161,6 +108,42 @@ namespace Sportradar.MTS.SDK.API.Internal.RabbitMq
 
             stopwatch.Stop();
             FeedLog.LogInformation($"CONSUME END Message: {correlationId}. Processed in {stopwatch.ElapsedMilliseconds} ms.");
+        }
+
+        private Dictionary<string, string> FillAdditionalInfo(Dictionary<string, string> additionalInfo, IBasicProperties basicProperties)
+        {
+            if (!basicProperties.IsHeadersPresent())
+            {
+                return additionalInfo;
+            }
+            if (basicProperties.Headers.ContainsKey("receivedUtcTimestamp") && basicProperties.Headers.TryGetValue("receivedUtcTimestamp", out var obj))
+            {
+                additionalInfo.Add("receivedUtcTimestamp", obj.ToString());
+            }
+            if (basicProperties.Headers.ContainsKey("validatedUtcTimestamp") && basicProperties.Headers.TryGetValue("validatedUtcTimestamp", out obj))
+            {
+                additionalInfo.Add("validatedUtcTimestamp", obj.ToString());
+            }
+            if (basicProperties.Headers.ContainsKey("respondedUtcTimestamp") && basicProperties.Headers.TryGetValue("respondedUtcTimestamp", out obj))
+            {
+                additionalInfo.Add("respondedUtcTimestamp", obj.ToString());
+            }
+            if (basicProperties.Headers.ContainsKey("__uid__") && basicProperties.Headers.TryGetValue("__uid__", out obj) && obj is byte[] b1)
+            {
+                var uid = Encoding.UTF8.GetString(b1);
+                additionalInfo.Add("__uid__", uid);
+            }
+            if (basicProperties.Headers.ContainsKey("Content-Type"))
+            {
+                basicProperties.Headers.TryGetValue("Content-Type", out obj);
+                if (obj is byte[] b)
+                {
+                    var c = Encoding.UTF8.GetString(b);
+                    additionalInfo.Add("Content-Type", c);
+                }
+            }
+
+            return additionalInfo;
         }
 
         /// <summary>
@@ -221,7 +204,7 @@ namespace Sportradar.MTS.SDK.API.Internal.RabbitMq
         /// </summary>
         public void RegisterHealthCheck()
         {
-            //HealthChecks.RegisterHealthCheck("RabbitMqMessageReceiver", StartHealthCheck);
+            // unused
         }
 
         /// <summary>
@@ -241,7 +224,6 @@ namespace Sportradar.MTS.SDK.API.Internal.RabbitMq
             }
 
             var sb = new StringBuilder();
-            //{:content_type=>"application/json", :headers=> {"validatedUtcTimestamp"=>1542078341898, "receivedUtcTimestamp"=>1542078341892, "respondedUtcTimestamp"=>1542078341908, "_uid_"=>"b6a6e220-2cd3-4d8e-99b9-684c1bc66a13", "Content-Type"=>"application/json"}, :delivery_mode => 1, :priority => 0, :correlation_id => "j9501f21e-6264-44b1-a83d-6689303c4e31"}
             sb.Append("ContentType=").Append(props.ContentType);
             if (props.IsHeadersPresent())
             {

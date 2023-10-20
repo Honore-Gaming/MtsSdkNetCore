@@ -20,6 +20,15 @@ The package contains:
  - libs: DLL file composing the MTS SDK
  - MTS SDK Documentation.chm: A documentation file describing exposed entities
  - Resources containing the log4net configuration needed by the MTS SDK
+ 
+CHANGE LOG:
+2022-11-30 2.4.1.1
+Changed url stgapi.betradar.com and api.betradar.com to global
+
+2022-09-22 2.4.1
+Support for ticket version 2.4
+Added new functionality for promotional bets
+Added new payCap attribute to external ticket (Max Payout T&C)
 
 CHANGE LOG:
 2021-03-22 2.3.4
@@ -29,7 +38,7 @@ Fix: Removed ambiguity with setting enableUserAqs (internal)
 
 2020-11-06 2.3.3
 Added sslServerName to the configuration
-IMtsSdk extended with Connectiontatus; provides also event ConnectionChange
+IMtsSdk extended with ConnectionStatus; provides also event ConnectionChange
 Removed ticket selection count limit (mts will check it)
 
 2020-09-18 2.3.2

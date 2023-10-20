@@ -27,17 +27,14 @@ namespace Sportradar.MTS.SDK.Entities.Internal.Dto.Ticket
             _eventId = selection.EventId;
             _id = selection.Id;
             _odds = selection.Odds;
+            _boostedOdds = selection.BoostedOdds;
         }
 
         public override bool Equals(object obj)
         {
-            var sel = obj as Anonymous2;
-            if (sel != null)
+            if (obj is Anonymous2 sel && string.Equals(sel.Id, Id) && sel.EventId == EventId && sel.Odds == Odds)
             {
-                if (string.Equals(sel.Id, Id) && sel.EventId == EventId && sel.Odds == Odds)
-                {
-                    return true;
-                }
+                return true;
             }
 
             return false;

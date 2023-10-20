@@ -279,7 +279,7 @@ namespace Sportradar.MTS.SDK.Test.Helpers
             return new TicketNonSrSettleResponseDTO
             {
                 Signature = SR.S1000,
-                Version = "2.3",
+                Version = "2.4",
                 Result = new SDK.Entities.Internal.Dto.TicketNonSrSettleResponse.Result
                 {
                     Reason = new SDK.Entities.Internal.Dto.TicketNonSrSettleResponse.Reason
@@ -295,6 +295,7 @@ namespace Sportradar.MTS.SDK.Test.Helpers
 
         private static Anonymous2 GetResponseBetDetail(string betId, bool reoffer, bool alt)
         {
+            var reofferType = SR.B ? ReofferType.Auto : ReofferType.Manual;
             return new Anonymous2
             {
                 BetId = string.IsNullOrEmpty(betId) ? "bet-id-" + SR.S1000 : betId,
@@ -306,7 +307,7 @@ namespace Sportradar.MTS.SDK.Test.Helpers
                 Reoffer = reoffer ? null : new Reoffer
                     {
                         Stake = SR.I1000P,
-                        Type = SR.B ? ReofferType.Auto : ReofferType.Manual
+                        Type = reofferType
                     },
                 SelectionDetails = new List<Anonymous3>
                 {

@@ -178,22 +178,7 @@ namespace Sportradar.MTS.SDK.API.Internal.RabbitMq
                         //publish
                         var publishResult = PublishMsg(pqi.TicketId, (byte[]) pqi.Message, pqi.RoutingKey, pqi.CorrelationId, pqi.ReplyRoutingKey);
 
-                        if (publishResult.IsSuccess)
-                        {
-                            if (FeedLog.IsEnabled(LogLevel.Debug))
-                            {
-                                FeedLog.LogDebug($"Publish succeeded. CorrelationId={pqi.CorrelationId}, RoutingKey={pqi.RoutingKey}, ReplyRoutingKey={pqi.ReplyRoutingKey}, Added={pqi.Timestamp}.");
-                            }
-                            else
-                            {
-                                FeedLog.LogInformation($"Publish succeeded. CorrelationId={pqi.CorrelationId}, RoutingKey={pqi.RoutingKey}, Added={pqi.Timestamp}.");
-                            }
-                        }
-                        else
-                        {
-                            FeedLog.LogWarning($"Publish failed. CorrelationId={pqi.CorrelationId}, RoutingKey={pqi.RoutingKey}, Added={pqi.Timestamp}. Reason={publishResult.Message}");
-                            RaiseMessagePublishFailedEvent(pqi.Message, pqi.CorrelationId, pqi.RoutingKey, publishResult.Message);
-                        }
+                        HandlePublishResult(publishResult, pqi);
                     }
                 }
                 catch (Exception exception)
@@ -209,6 +194,26 @@ namespace Sportradar.MTS.SDK.API.Internal.RabbitMq
             if (_useQueue)
             {
                 _queueTimer.FireOnce(TimeSpan.FromMilliseconds(200)); // recheck after X milliseconds
+            }
+        }
+
+        private void HandlePublishResult(IMqPublishResult publishResult, PublishQueueItem pqi)
+        {
+            if (publishResult.IsSuccess)
+            {
+                if (FeedLog.IsEnabled(LogLevel.Debug))
+                {
+                    FeedLog.LogDebug($"Publish succeeded. CorrelationId={pqi.CorrelationId}, RoutingKey={pqi.RoutingKey}, ReplyRoutingKey={pqi.ReplyRoutingKey}, Added={pqi.Timestamp}.");
+                }
+                else
+                {
+                    FeedLog.LogInformation($"Publish succeeded. CorrelationId={pqi.CorrelationId}, RoutingKey={pqi.RoutingKey}, Added={pqi.Timestamp}.");
+                }
+            }
+            else
+            {
+                FeedLog.LogWarning($"Publish failed. CorrelationId={pqi.CorrelationId}, RoutingKey={pqi.RoutingKey}, Added={pqi.Timestamp}. Reason={publishResult.Message}");
+                RaiseMessagePublishFailedEvent(pqi.Message, pqi.CorrelationId, pqi.RoutingKey, publishResult.Message);
             }
         }
 
@@ -291,8 +296,6 @@ namespace Sportradar.MTS.SDK.API.Internal.RabbitMq
                 FeedLog.LogError(errorMessage);
                 ExecutionLog.LogError(errorMessage);
                 //since user called Publish, we just return result and no need to call event handler
-                //var args = new MessagePublishFailedEventArgs(msg, correlationId, routingKey, errorMessage);
-                //MqMessagePublishFailed?.Invoke(this, args);
                 return new MqPublishResult(correlationId, false, errorMessage);
             }
 
@@ -328,7 +331,6 @@ namespace Sportradar.MTS.SDK.API.Internal.RabbitMq
                 }
                 if (!string.IsNullOrEmpty(correlationId))
                 {
-                    //_channelBasicProperties.Headers["correlationId"] = correlationId;
                     channelBasicProperties.CorrelationId = correlationId;
                 }
                 if (!string.IsNullOrEmpty(replyRoutingKey))
@@ -355,63 +357,23 @@ namespace Sportradar.MTS.SDK.API.Internal.RabbitMq
                 try
                 {
                     var channelWrapper = _channelFactory.GetChannel(UniqueId);
-                    if (channelWrapper == null)
-                    {
-                        throw new OperationCanceledException("Missing publisher channel wrapper.");
-                    }
-                    if (channelWrapper.MarkedForDeletion)
-                    {
-                        throw new OperationCanceledException("Publisher channel marked for deletion.");
-                    }
-                    if (channelWrapper.Channel.IsOpen && channelWrapper.ChannelBasicProperties != null)
+                    if (CheckChannelWrapper(channelWrapper))
                     {
                         return;
                     }
+
                     channelWrapper.Channel.ModelShutdown += ChannelOnModelShutdown;
                     ExecutionLog.LogInformation($"Opening the publisher channel with channelNumber: {UniqueId} and exchangeName: {_mtsChannelSettings.ExchangeName}.");
 
                     // try to declare the exchange if it is not the default one
                     if (!string.IsNullOrEmpty(_mtsChannelSettings.ExchangeName))
                     {
-                        try
-                        {
-                            channelWrapper.Channel.ExchangeDeclare(_mtsChannelSettings.ExchangeName,
-                                                     _mtsChannelSettings.ExchangeType.ToString().ToLower(),
-                                                     _channelSettings.QueueIsDurable,
-                                                     false,
-                                                     null);
-                        }
-                        catch (Exception ie)
-                        {
-                            ExecutionLog.LogError(ie.Message, ie);
-                            ExecutionLog.LogWarning($"Exchange {_mtsChannelSettings.ExchangeName} creation failed, will try to recreate it.");
-                            channelWrapper.Channel.ExchangeDelete(_mtsChannelSettings.ExchangeName);
-                            channelWrapper.Channel.ExchangeDeclare(_mtsChannelSettings.ExchangeName,
-                                                     _mtsChannelSettings.ExchangeType.ToString().ToLower(),
-                                                     _channelSettings.QueueIsDurable,
-                                                     false,
-                                                     null);
-                        }
+                        MtsChannelSettings.TryDeclareExchange(channelWrapper.Channel, _mtsChannelSettings, _channelSettings.QueueIsDurable, ExecutionLog);
                     }
 
-                    var channelBasicProperties = channelWrapper.Channel.CreateBasicProperties();
-                    channelBasicProperties.ContentType = "application/json";
-                    channelBasicProperties.DeliveryMode = _channelSettings.UsePersistentDeliveryMode ? (byte)2 : (byte)1;
-
-                    //headerProperties like replyRoutingKey
-                    channelBasicProperties.Headers = new Dictionary<string, object>();
-                    if (_mtsChannelSettings.HeaderProperties != null && _mtsChannelSettings.HeaderProperties.Any())
-                    {
-                        foreach (var h in _mtsChannelSettings.HeaderProperties)
-                        {
-                            channelBasicProperties.Headers.Add(h.Key, h.Value);
-                        }
-                    }
-
-                    channelWrapper.ChannelBasicProperties = channelBasicProperties;
+                    channelWrapper.ChannelBasicProperties = CreateBasicProperties(channelWrapper.Channel);
 
                     Interlocked.CompareExchange(ref _isOpened, 1, 0);
-                    //ExecutionLog.LogDebug($"Opening the publisher channel with channelNumber: {UniqueId} and exchangeName: {_mtsChannelSettings.ExchangeName} finished.");
                     return;
                 }
                 catch (Exception e)
@@ -429,6 +391,48 @@ namespace Sportradar.MTS.SDK.API.Internal.RabbitMq
                     Thread.Sleep(sleepTime);
                 }
             }
+        }
+
+        /// <summary>
+        /// Checks the channel wrapper
+        /// </summary>
+        /// <param name="channelWrapper">The channel wrapper</param>
+        /// <returns><c>true</c> if should return from method, <c>false</c> otherwise.</returns>
+        private bool CheckChannelWrapper(ChannelWrapper channelWrapper)
+        {
+            if (channelWrapper == null)
+            {
+                throw new OperationCanceledException("Missing publisher channel wrapper.");
+            }
+            if (channelWrapper.MarkedForDeletion)
+            {
+                throw new OperationCanceledException("Publisher channel marked for deletion.");
+            }
+            if (channelWrapper.Channel.IsOpen && channelWrapper.ChannelBasicProperties != null)
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private IBasicProperties CreateBasicProperties(IModel channel)
+        {
+            var channelBasicProperties = channel.CreateBasicProperties();
+            channelBasicProperties.ContentType = "application/json";
+            channelBasicProperties.DeliveryMode = _channelSettings.UsePersistentDeliveryMode ? (byte)2 : (byte)1;
+
+            //headerProperties like replyRoutingKey
+            channelBasicProperties.Headers = new Dictionary<string, object>();
+            if (_mtsChannelSettings.HeaderProperties != null && _mtsChannelSettings.HeaderProperties.Any())
+            {
+                foreach (var h in _mtsChannelSettings.HeaderProperties)
+                {
+                    channelBasicProperties.Headers.Add(h.Key, h.Value);
+                }
+            }
+
+            return channelBasicProperties;
         }
 
         private void ChannelOnModelShutdown(object sender, ShutdownEventArgs e)
@@ -457,6 +461,7 @@ namespace Sportradar.MTS.SDK.API.Internal.RabbitMq
         /// Closes the current channel
         /// </summary>
         /// <exception cref="InvalidOperationException">The instance is already closed</exception>
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Major Code Smell", "S1066:Collapsible \"if\" statements should be merged", Justification = "Approved for readability")]
         public void Close()
         {
             if (Interlocked.CompareExchange(ref _isOpened, 0, 1) != 1)
@@ -466,7 +471,6 @@ namespace Sportradar.MTS.SDK.API.Internal.RabbitMq
                 {
                     ExecutionLog.LogError($"Cannot close the publisher channel on channelNumber: {UniqueId}, because this channel is already closed.");
                 }
-                //throw new InvalidOperationException("The instance is already closed");
             }
             Interlocked.CompareExchange(ref _shouldBeOpened, 0, 1);
         }

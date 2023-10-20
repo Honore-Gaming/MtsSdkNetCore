@@ -2,30 +2,38 @@
 
   <PropertyGroup>
     <TargetFramework>netstandard2.1</TargetFramework>
-    <AssemblyVersion>2.3.4.0</AssemblyVersion>
-    <FileVersion>2.3.4.0</FileVersion>
+    <AssemblyVersion>2.4.1.1</AssemblyVersion>
+    <FileVersion>2.4.1.1</FileVersion>
     <LangVersion>8</LangVersion>
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
-    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <PackageRequireLicenseAcceptance>true</PackageRequireLicenseAcceptance>
     <PackageId>Sportradar.MTS.SDKCore</PackageId>
     <Authors>Sportradar AG</Authors>
     <Company>Sportradar AG</Company>
     <Product>Sportradar.MTS.SDKCore</Product>
     <Description>The SDK simplifying the integration with Sportradar's MTS services (.NET Standard 2.1)</Description>
-    <Copyright>Copyright © Sportradar AG 2020</Copyright>
+    <Copyright>Copyright © Sportradar AG 2022</Copyright>
     <PackageProjectUrl>http://sdk.sportradar.com</PackageProjectUrl>
     <RepositoryUrl>https://github.com/sportradar/MtsSdkNetCore</RepositoryUrl>
     <PackageTags>SportRadar MTS SDK .NETCore</PackageTags>
-    <PackageReleaseNotes></PackageReleaseNotes>
+    <PackageReleaseNotes>Changed url stgapi.betradar.com and api.betradar.com to global</PackageReleaseNotes>
     <RepositoryType>git</RepositoryType>
-    <VersionPrefix>2.3.4.0</VersionPrefix>
+    <Version>2.4.1.1</Version>
+    <CodeAnalysisRuleSet>Sportradar.MTS.SDK.ruleset</CodeAnalysisRuleSet>
+    <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <Nullable>disable</Nullable>
+    <VersionPrefix>2.4.1.1</VersionPrefix>
     <VersionSuffix>$(VersionSuffix)</VersionSuffix>
-    <CodeAnalysisRuleSet>..\.sonarlint\mts_sdk_net_corecsharp.ruleset</CodeAnalysisRuleSet>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
-    <DocumentationFile>bin\Debug\Sportradar.MTS.SDK.xml</DocumentationFile>
+    <DocumentationFile>bin\Debug\Sportradar.MTS.SDKCore.xml</DocumentationFile>
     <OutputPath>bin\Debug\</OutputPath>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+    <DocumentationFile>bin\Release\Sportradar.MTS.SDKCore.xml</DocumentationFile>
+    <OutputPath>bin\Release</OutputPath>
   </PropertyGroup>
 
   <ItemGroup>
@@ -55,6 +63,10 @@
   <ItemGroup>
     <None Update="Readme.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\..\LICENSE">
+      <Pack>True</Pack>
+      <PackagePath></PackagePath>
     </None>
   </ItemGroup>
 

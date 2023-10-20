@@ -3,7 +3,6 @@
  */
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using Dawn;
 using System.Globalization;
 using System.Linq;
@@ -54,12 +53,6 @@ namespace Sportradar.MTS.SDK.Entities.Internal.Cache
         private readonly IDataProvider<IEnumerable<MarketDescriptionDTO>> _dataProvider;
 
         /// <summary>
-        /// A <see cref="IReadOnlyCollection{CultureInfo}"/> specifying the languages for which the data should be pre-fetched
-        /// </summary>
-        // ReSharper disable once NotAccessedField.Local
-        private readonly IReadOnlyCollection<CultureInfo> _prefetchLanguages;
-
-        /// <summary>
         /// A <see cref="ISet{CultureInfo}"/> used to store languages for which the data was already fetched (at least once)
         /// </summary>
         private readonly ISet<CultureInfo> _fetchedLanguages = new HashSet<CultureInfo>();
@@ -83,14 +76,12 @@ namespace Sportradar.MTS.SDK.Entities.Internal.Cache
         /// </summary>
         /// <param name="cache">A <see cref="ObjectCache"/> used to store market descriptors</param>
         /// <param name="dataProvider">A <see cref="IDataProvider{T}"/> used to fetch market descriptors</param>
-        /// <param name="prefetchLanguages">A <see cref="IReadOnlyCollection{CultureInfo}"/> specifying the languages for which the data should be pre-fetched</param>
         /// <param name="accessToken">The <see cref="ISdkConfigurationSection.AccessToken"/> used to access UF REST API</param>
         /// <param name="fetchInterval">The fetch interval</param>
         /// <param name="cacheItemPolicy">The cache item policy</param>
         /// <param name="metrics">A <see cref="IMetricsRoot"/> used to record sdk metrics</param>
         public MarketDescriptionCache(ObjectCache cache,
                                       IDataProvider<IEnumerable<MarketDescriptionDTO>> dataProvider,
-                                      IEnumerable<CultureInfo> prefetchLanguages,
                                       string accessToken,
                                       TimeSpan fetchInterval,
                                       CacheItemPolicy cacheItemPolicy,
@@ -98,16 +89,13 @@ namespace Sportradar.MTS.SDK.Entities.Internal.Cache
         {
             Guard.Argument(cache, nameof(cache)).NotNull();
             Guard.Argument(dataProvider, nameof(dataProvider)).NotNull();
-            var cultureInfos = prefetchLanguages?.ToList();
-            Guard.Argument(cultureInfos, nameof(cultureInfos)).NotNull().NotEmpty();
-            Guard.Argument(fetchInterval, nameof(fetchInterval)).Require(fetchInterval != null);
-
+            Guard.Argument(fetchInterval, nameof(fetchInterval)).Require(fetchInterval.TotalSeconds > 0);
+            
             _fetchInterval = fetchInterval;
             _cacheItemPolicy = cacheItemPolicy;
             TimeOfLastFetch = DateTime.MinValue;
             Cache = cache;
             _dataProvider = dataProvider;
-            _prefetchLanguages = new ReadOnlyCollection<CultureInfo>(cultureInfos ?? throw new InvalidOperationException());
 
             _tokenProvided = !string.IsNullOrEmpty(accessToken);
             var isProvided = _tokenProvided ? string.Empty : " not";
@@ -140,14 +128,10 @@ namespace Sportradar.MTS.SDK.Entities.Internal.Cache
             var requiredTranslationsList = requiredTranslations?.ToList();
             Guard.Argument(requiredTranslationsList, nameof(requiredTranslationsList)).NotNull().NotEmpty();
 
-            if (item == null)
+            if (item == null && requiredTranslationsList != null)
             {
-                //return requiredTranslations;
                 //we get only those which was not yet fetched
-                if (requiredTranslationsList != null)
-                {
-                    return requiredTranslationsList.Where(c => !_fetchedLanguages.Contains(c));
-                }
+                return requiredTranslationsList.Where(c => !_fetchedLanguages.Contains(c));
             }
 
             if (requiredTranslationsList != null)
@@ -159,7 +143,7 @@ namespace Sportradar.MTS.SDK.Entities.Internal.Cache
                     : null;
             }
 
-            return null;
+            return new List<CultureInfo>();
         }
 
         /// <summary>
@@ -173,38 +157,38 @@ namespace Sportradar.MTS.SDK.Entities.Internal.Cache
             Guard.Argument(culture, nameof(culture)).NotNull();
             Guard.Argument(descriptionList, nameof(descriptionList)).NotNull().NotEmpty();
 
-            if (descriptionList != null)
+            if (descriptionList == null)
             {
-                foreach (var marketDescription in descriptionList)
-                {
-                    var cachedItem = Cache.GetCacheItem(marketDescription.Id.ToString());
-                    if (cachedItem == null)
-                    {
-                        try
-                        {
-                            cachedItem = new CacheItem(marketDescription.Id.ToString(),
-                                MarketDescriptionCacheItem.Build(marketDescription, /*_mappingValidatorFactory,*/
-                                    culture));
-                            Cache.Add(cachedItem, _cacheItemPolicy);
-                        }
-                        catch (Exception e)
-                        {
-                            if (!(e is InvalidOperationException))
-                            {
-                                throw;
-                            }
+                return;
+            }
 
-                            CacheLog.LogWarning("Mapping validation for MarketDescriptionCacheItem failed.", e);
-                        }
-                    }
-                    else
+            foreach (var marketDescription in descriptionList)
+            {
+                var cachedItem = Cache.GetCacheItem(marketDescription.Id.ToString());
+                if (cachedItem == null)
+                {
+                    try
                     {
-                        ((MarketDescriptionCacheItem) cachedItem.Value).Merge(marketDescription, culture);
+                        cachedItem = new CacheItem(marketDescription.Id.ToString(), MarketDescriptionCacheItem.Build(marketDescription, culture));
+                        Cache.Add(cachedItem, _cacheItemPolicy);
+                    }
+                    catch (Exception e)
+                    {
+                        if (!(e is InvalidOperationException))
+                        {
+                            throw;
+                        }
+
+                        CacheLog.LogWarning("Mapping validation for MarketDescriptionCacheItem failed.", e);
                     }
                 }
-
-                _fetchedLanguages.Add(culture);
+                else
+                {
+                    ((MarketDescriptionCacheItem) cachedItem.Value).Merge(marketDescription, culture);
+                }
             }
+
+            _fetchedLanguages.Add(culture);
         }
 
         /// <summary>
@@ -257,7 +241,6 @@ namespace Sportradar.MTS.SDK.Entities.Internal.Cache
                 throw new CommunicationException("Missing AccessToken.", string.Empty, null);
             }
 
-
             try
             {
                 await _semaphore.WaitAsync();
@@ -281,8 +264,7 @@ namespace Sportradar.MTS.SDK.Entities.Internal.Cache
             }
             catch (Exception ex)
             {
-                var disposedException = ex as ObjectDisposedException;
-                if (disposedException != null)
+                if (ex is ObjectDisposedException disposedException)
                 {
                     CacheLog.LogWarning($"An error occurred while fetching market descriptions because the object graph is being disposed. Object causing the exception: {disposedException.ObjectName}.");
                 }
@@ -383,7 +365,7 @@ namespace Sportradar.MTS.SDK.Entities.Internal.Cache
         /// </summary>
         public void RegisterHealthCheck()
         {
-            //HealthChecks.RegisterHealthCheck("MarketDescriptorCache", new Func<HealthCheckResult>(StartHealthCheck));
+            //unused
         }
 
         /// <summary>

@@ -138,28 +138,30 @@ namespace Sportradar.MTS.SDK.API.Internal.RabbitMq
             var correlationId = basicDeliverEventArgs?.BasicProperties?.CorrelationId ?? string.Empty;
             FeedLog.LogInformation($"Received message from MTS with correlationId: {correlationId}.");
             ChannelMessageReceived?.Invoke(this, basicDeliverEventArgs);
-            
-            if (_channelSettings.UserAcknowledgmentEnabled)
+
+            if (!_channelSettings.UserAcknowledgmentEnabled)
             {
-                var i = 0;
-                while (i < 10)
+                return;
+            }
+
+            var i = 0;
+            while (i < 10)
+            {
+                i++;
+                try
                 {
-                    i++;
-                    try
+                    var channelWrapper = _channelFactory.GetChannel(UniqueId);
+                    CreateAndOpenConsumerChannel();
+                    channelWrapper.Channel.BasicAck(basicDeliverEventArgs?.DeliveryTag ?? 0, false);
+                    break;
+                }
+                catch (Exception e)
+                {
+                    if (!e.Message.Contains("unknown delivery tag"))
                     {
-                        var channelWrapper = _channelFactory.GetChannel(UniqueId);
-                        CreateAndOpenConsumerChannel();
-                        channelWrapper.Channel.BasicAck(basicDeliverEventArgs?.DeliveryTag ?? 0, false);
-                        break;
+                        FeedLog.LogDebug($"Sending Ack for processed message {basicDeliverEventArgs?.DeliveryTag} failed. {e.Message}");
                     }
-                    catch (Exception e)
-                    {
-                        if (!e.Message.Contains("unknown delivery tag"))
-                        {
-                            FeedLog.LogDebug($"Sending Ack for processed message {basicDeliverEventArgs?.DeliveryTag} failed. {e.Message}");
-                        }
-                        Thread.Sleep(i * 1000);
-                    }
+                    Thread.Sleep(i * 1000);
                 }
             }
         }
@@ -218,8 +220,7 @@ namespace Sportradar.MTS.SDK.API.Internal.RabbitMq
             }
 
             _routingKeys = routingKeys;
-
-            //Interlocked.CompareExchange(ref _isOpened, 1, 0);
+            
             Interlocked.CompareExchange(ref _shouldBeOpened, 1, 0);
             CreateAndOpenConsumerChannel();
             _healthTimer.FireOnce(new TimeSpan(0, 0, _timerInterval));
@@ -235,22 +236,8 @@ namespace Sportradar.MTS.SDK.API.Internal.RabbitMq
                     try
                     {
                         var channelWrapper = _channelFactory.GetChannel(UniqueId);
-                        if (channelWrapper == null)
+                        if (CheckChannelWrapper(channelWrapper))
                         {
-                            throw new OperationCanceledException("Missing consumer channel wrapper.");
-                        }
-
-                        if (channelWrapper.MarkedForDeletion)
-                        {
-                            _channelFactory.RemoveChannel(UniqueId);
-                            throw new OperationCanceledException("Consumer channel marked for deletion.");
-                        }
-
-                        if (channelWrapper.Channel.IsClosed && !channelWrapper.MarkedForDeletion)
-                        {
-                            channelWrapper.MarkedForDeletion = true;
-                            DisposeCurrentConsumer(channelWrapper);
-                            _channelFactory.RemoveChannel(UniqueId);
                             continue;
                         }
 
@@ -264,58 +251,10 @@ namespace Sportradar.MTS.SDK.API.Internal.RabbitMq
                         // try to declare the exchange if it is not the default one
                         if (!string.IsNullOrEmpty(_mtsChannelSettings.ExchangeName))
                         {
-                            try
-                            {
-                                channelWrapper.Channel.ExchangeDeclare(_mtsChannelSettings.ExchangeName,
-                                    _mtsChannelSettings.ExchangeType.ToString().ToLower(),
-                                    _channelSettings.QueueIsDurable,
-                                    false,
-                                    null);
-                            }
-                            catch (Exception ie)
-                            {
-                                ExecutionLog.LogError(ie.Message, ie);
-                                ExecutionLog.LogWarning($"Exchange {_mtsChannelSettings.ExchangeName} creation failed, will try to recreate it.");
-                                channelWrapper.Channel.ExchangeDelete(_mtsChannelSettings.ExchangeName);
-                                channelWrapper.Channel.ExchangeDeclare(_mtsChannelSettings.ExchangeName,
-                                    _mtsChannelSettings.ExchangeType.ToString().ToLower(),
-                                    _channelSettings.QueueIsDurable,
-                                    false,
-                                    null);
-                            }
+                            MtsChannelSettings.TryDeclareExchange(channelWrapper.Channel, _mtsChannelSettings, _channelSettings.QueueIsDurable, ExecutionLog);
                         }
 
-                        var arguments = new Dictionary<string, object> { { "x-queue-master-locator", "min-masters" } };
-
-                        var declareResult = _channelSettings.QueueIsDurable
-                            ? channelWrapper.Channel.QueueDeclare(_queueName, true, false, false, arguments)
-                            : channelWrapper.Channel.QueueDeclare(_queueName, false, false, false, arguments);
-
-                        if (!string.IsNullOrEmpty(_mtsChannelSettings.ExchangeName) && _routingKeys != null)
-                        {
-                            foreach (var routingKey in _routingKeys)
-                            {
-                                ExecutionLog.LogInformation($"Binding queue={declareResult.QueueName} with routingKey={routingKey}");
-                                channelWrapper.Channel.QueueBind(declareResult.QueueName,
-                                    exchange: _mtsChannelSettings.ExchangeName,
-                                    routingKey: routingKey);
-                            }
-                        }
-
-                        channelWrapper.Channel.BasicQos(0, 10, false);
-                        var consumer = new EventingBasicConsumer(channelWrapper.Channel);
-                        consumer.Received += OnDataReceived;
-                        consumer.Registered += OnRegistered;
-                        consumer.Unregistered += OnUnregistered;
-                        consumer.Shutdown += OnShutdown;
-                        consumer.ConsumerCancelled += OnConsumerCanceled;
-                        channelWrapper.Channel.BasicConsume(queue: declareResult.QueueName, 
-                            autoAck: true,
-                            consumerTag: $"{_mtsChannelSettings.ConsumerTag}",
-                            consumer: consumer,
-                            noLocal: false,
-                            exclusive: _channelSettings.ExclusiveConsumer);
-                        channelWrapper.Consumer = consumer;
+                        channelWrapper.Consumer = BindQueueAndCreateConsumer(channelWrapper.Channel);
 
                         Interlocked.CompareExchange(ref _isOpened, 1, 0);
                         return;
@@ -340,6 +279,65 @@ namespace Sportradar.MTS.SDK.API.Internal.RabbitMq
             }
         }
 
+        private bool CheckChannelWrapper(ChannelWrapper channelWrapper)
+        {
+            if (channelWrapper == null)
+            {
+                throw new OperationCanceledException("Missing consumer channel wrapper.");
+            }
+
+            if (channelWrapper.MarkedForDeletion)
+            {
+                _channelFactory.RemoveChannel(UniqueId);
+                throw new OperationCanceledException("Consumer channel marked for deletion.");
+            }
+
+            if (channelWrapper.Channel.IsClosed && !channelWrapper.MarkedForDeletion)
+            {
+                channelWrapper.MarkedForDeletion = true;
+                DisposeCurrentConsumer(channelWrapper);
+                _channelFactory.RemoveChannel(UniqueId);
+                return true;
+            }
+
+            return false;
+        }
+
+        private EventingBasicConsumer BindQueueAndCreateConsumer(IModel channel)
+        {
+            var arguments = new Dictionary<string, object> { { "x-queue-master-locator", "min-masters" } };
+
+            var declareResult = _channelSettings.QueueIsDurable
+                ? channel.QueueDeclare(_queueName, true, false, false, arguments)
+                : channel.QueueDeclare(_queueName, false, false, false, arguments);
+
+            if (!string.IsNullOrEmpty(_mtsChannelSettings.ExchangeName) && _routingKeys != null)
+            {
+                foreach (var routingKey in _routingKeys)
+                {
+                    ExecutionLog.LogInformation($"Binding queue={declareResult.QueueName} with routingKey={routingKey}");
+                    channel.QueueBind(declareResult.QueueName,
+                        exchange: _mtsChannelSettings.ExchangeName,
+                        routingKey: routingKey);
+                }
+            }
+
+            channel.BasicQos(0, 10, false);
+            var consumer = new EventingBasicConsumer(channel);
+            consumer.Received += OnDataReceived;
+            consumer.Registered += OnRegistered;
+            consumer.Unregistered += OnUnregistered;
+            consumer.Shutdown += OnShutdown;
+            consumer.ConsumerCancelled += OnConsumerCanceled;
+            channel.BasicConsume(queue: declareResult.QueueName, 
+                autoAck: true,
+                consumerTag: $"{_mtsChannelSettings.ConsumerTag}",
+                consumer: consumer,
+                noLocal: false,
+                exclusive: _channelSettings.ExclusiveConsumer);
+            return consumer;
+        }
+
         /// <summary>
         /// Closes the current channel
         /// </summary>
@@ -349,23 +347,23 @@ namespace Sportradar.MTS.SDK.API.Internal.RabbitMq
             if (Interlocked.CompareExchange(ref _isOpened, 0, 1) != 1)
             {
                 ExecutionLog.LogError($"Cannot close the consumer channel on channelNumber: {UniqueId}, because this channel is already closed.");
-                //throw new InvalidOperationException("The instance is already closed");
             }
             Interlocked.CompareExchange(ref _shouldBeOpened, 0, 1);
         }
 
         private void DisposeCurrentConsumer(ChannelWrapper channelWrapper)
         {
-            if (channelWrapper?.Consumer != null)
+            if (channelWrapper?.Consumer == null)
             {
-                ExecutionLog.LogInformation($"Closing the consumer channel with channelNumber: {UniqueId} and queueName: {_queueName}.");
-                channelWrapper.Consumer.Received -= OnDataReceived;
-                channelWrapper.Consumer.Registered -= OnRegistered;
-                channelWrapper.Consumer.Unregistered -= OnUnregistered;
-                channelWrapper.Consumer.Shutdown -= OnShutdown;
-                channelWrapper.Consumer.ConsumerCancelled -= OnConsumerCanceled;
-                channelWrapper.Consumer = null;
+                return;
             }
+            ExecutionLog.LogInformation($"Closing the consumer channel with channelNumber: {UniqueId} and queueName: {_queueName}.");
+            channelWrapper.Consumer.Received -= OnDataReceived;
+            channelWrapper.Consumer.Registered -= OnRegistered;
+            channelWrapper.Consumer.Unregistered -= OnUnregistered;
+            channelWrapper.Consumer.Shutdown -= OnShutdown;
+            channelWrapper.Consumer.ConsumerCancelled -= OnConsumerCanceled;
+            channelWrapper.Consumer = null;
         }
     }
 }

@@ -3,6 +3,7 @@
  */
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -85,9 +86,7 @@ namespace Sportradar.MTS.SDK.API.Internal
             _config = config;
         }
 
-
-        /// <inheritdoc />
-        [System.Diagnostics.CodeAnalysis.SuppressMessage("Major Code Smell", "S4457:Parameter validation in \"async\"/\"await\" methods should be wrapped", Justification = "Actually done")]
+        [SuppressMessage("Major Code Smell", "S107:Methods should not have too many parameters", Justification = "Needs more arguments")]
         public async Task GetHistoryCcfChangeCsvExportAsync(Stream outputStream, 
                                                             DateTime startDate, 
                                                             DateTime endDate, 
@@ -98,18 +97,13 @@ namespace Sportradar.MTS.SDK.API.Internal
                                                             string username = null, 
                                                             string password = null)
         {
-            if (outputStream == null)
-            {
-                throw new ArgumentNullException(nameof(outputStream), "Missing outputStream argument");
-            }
-
-            CheckArguments(startDate, endDate, bookmakerId, username, password);
+            CheckArguments(outputStream, startDate, endDate, bookmakerId, username, password);
 
             var result = await GetHistoryCcfChangeAsync(startDate, endDate, bookmakerId, subBookmakerIds, sourceId, sourceType, username, password).ConfigureAwait(false);
             await result.CopyToAsync(outputStream).ConfigureAwait(false);
         }
-
-        /// <inheritdoc />
+        
+        [SuppressMessage("Major Code Smell", "S107:Methods should not have too many parameters", Justification = "Needs more arguments")]
         public async Task<List<ICcfChange>> GetHistoryCcfChangeCsvExportAsync(DateTime startDate, 
                                                                               DateTime endDate, 
                                                                               int? bookmakerId = null,
@@ -151,6 +145,22 @@ namespace Sportradar.MTS.SDK.API.Internal
         }
 
         // ReSharper disable ParameterOnlyUsedForPreconditionCheck.Local
+        private void CheckArguments(Stream outputStream,
+                                    DateTime startDate,
+                                    DateTime endDate,
+                                    int? bookmakerId = null,
+                                    string username = null,
+                                    string password = null)
+        {
+            if (outputStream == null)
+            {
+                throw new ArgumentNullException(nameof(outputStream), "Missing outputStream argument");
+            }
+
+            CheckArguments(startDate, endDate, bookmakerId, username, password);
+        }
+
+        // ReSharper disable ParameterOnlyUsedForPreconditionCheck.Local
         private void CheckArguments(DateTime startDate,
                                     DateTime endDate,
                                     int? bookmakerId = null,
@@ -188,7 +198,7 @@ namespace Sportradar.MTS.SDK.API.Internal
             }
         }
 
-        [System.Diagnostics.CodeAnalysis.SuppressMessage("Major Code Smell", "S107:Methods should not have too many parameters", Justification = "Needs 8 arguments")]
+        [SuppressMessage("Major Code Smell", "S107:Methods should not have too many parameters", Justification = "Needs 8 arguments")]
         private async Task<Stream> GetHistoryCcfChangeAsync(DateTime startDate,
                                                             DateTime endDate, 
                                                             int? bookmakerId = null,
@@ -259,18 +269,13 @@ namespace Sportradar.MTS.SDK.API.Internal
             }
         }
 
-        internal class DateTimeTimestampTypeConverter : ITypeConverter<DateTime>
+        private class DateTimeTimestampTypeConverter : ITypeConverter<DateTime>
         {
             public Type TargetType => typeof(DateTime);
 
             public bool TryConvert(string value, out DateTime result)
             {
-                if (DateTime.TryParseExact(value, TimestampFormat, null, DateTimeStyles.AssumeUniversal, out result))
-                {
-                    return true;
-                }
-
-                return false;
+                return DateTime.TryParseExact(value, TimestampFormat, null, DateTimeStyles.AssumeUniversal, out result);
             }
         }
     }
