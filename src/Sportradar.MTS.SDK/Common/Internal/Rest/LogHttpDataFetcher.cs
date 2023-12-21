@@ -78,12 +78,12 @@ namespace Sportradar.MTS.SDK.Common.Internal.Rest
                 return responseStream;
             }
 
-            var responseContent = new StreamReader(responseStream).ReadToEnd();
+            var responseContent = await new StreamReader(responseStream).ReadToEndAsync();
 
             var memoryStream = new MemoryStream();
             var writer = new StreamWriter(memoryStream);
-            writer.Write(responseContent);
-            writer.Flush();
+            await writer.WriteAsync(responseContent);
+            await writer.FlushAsync();
             memoryStream.Position = 0;
 
             RestLog.LogDebug($"Id:{dataId} Fetching from {uri.AbsoluteUri} took {watch.ElapsedMilliseconds} ms. Data={responseContent}");

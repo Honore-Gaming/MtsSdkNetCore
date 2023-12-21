@@ -35,7 +35,7 @@ namespace Sportradar.MTS.SDK.Test
             var config = _childContainer1.Resolve<ISdkConfiguration>();
             Assert.IsNotNull(config);
 
-            var sdk = new MtsSdk(config, null, null);
+            var sdk = new MtsSdk(config);
             Assert.IsNotNull(sdk);
         }
 

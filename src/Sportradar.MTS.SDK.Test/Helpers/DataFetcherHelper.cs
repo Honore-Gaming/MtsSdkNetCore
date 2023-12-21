@@ -66,7 +66,7 @@ namespace Sportradar.MTS.SDK.Test.Helpers
             {
                 using (StreamReader stream = File.OpenText(path))
                 {
-                    var cont = stream.ReadToEnd();
+                    var cont = await stream.ReadToEndAsync();
                     httpResponseMessage = new HttpResponseMessage(HttpStatusCode.Accepted) {Content = new StringContent(cont)};
                     return await Task.Factory.StartNew(() => httpResponseMessage).ConfigureAwait(false);
                 }

@@ -49,7 +49,7 @@ namespace Sportradar.MTS.SDK.Test.Api
 
             _mockDataFetcher = new Mock<DataFetcherHelper>();
             _mockDataFetcher.Setup(p => p.GetDataAsync(It.IsAny<Uri>())).Returns(new DataFetcherHelper(BuilderFactoryHelper.UriReplacements).GetDataAsync(uri));
-            _mockDataFetcher.Setup(p => p.PostDataAsync(It.IsAny<Uri>(), It.IsAny<HttpContent>())).Returns(new DataFetcherHelper(BuilderFactoryHelper.UriReplacements).PostDataAsync(uri, null));
+            _mockDataFetcher.Setup(p => p.PostDataAsync(It.IsAny<Uri>(), It.IsAny<HttpContent>())).Returns(new DataFetcherHelper(BuilderFactoryHelper.UriReplacements).PostDataAsync(uri));
 
             _deserializer = new SDK.Entities.Internal.JsonDeserializer<AccessTokenDTO>();
             _mapper = new KeycloakAuthorizationMapperFactory();
